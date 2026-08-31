@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import confetti from 'canvas-confetti';
 import {
   ArrowUp,
@@ -11,9 +11,11 @@ import {
   Flag,
   Star,
   CheckCircle,
+  Shuffle,
 } from 'lucide-react';
 import { KikoCharacter, PipiCharacter, SpeechBubble } from '../Characters';
 import { sound } from '../../utils/sound';
+import { pickRandom } from '../../utils/shuffle';
 
 interface Level3Props {
   onCompleteLevel: (levelId: number, starsEarned: number, codingPoints: number) => void;
@@ -27,6 +29,79 @@ interface GridCell {
   y: number;
 }
 
+interface G1Layout {
+  start: GridCell;
+  star1: GridCell;
+  star2: GridCell;
+  flag: GridCell;
+}
+
+const G1_LAYOUT_POOL: G1Layout[] = [
+  {
+    start: { x: 0, y: 1 },
+    star1: { x: 1, y: 0 },
+    star2: { x: 2, y: 2 },
+    flag: { x: 3, y: 1 },
+  },
+  {
+    start: { x: 0, y: 0 },
+    star1: { x: 1, y: 1 },
+    star2: { x: 2, y: 0 },
+    flag: { x: 3, y: 2 },
+  },
+  {
+    start: { x: 0, y: 2 },
+    star1: { x: 1, y: 1 },
+    star2: { x: 2, y: 1 },
+    flag: { x: 3, y: 0 },
+  },
+  {
+    start: { x: 0, y: 1 },
+    star1: { x: 1, y: 1 },
+    star2: { x: 2, y: 1 },
+    flag: { x: 3, y: 1 },
+  },
+];
+
+interface G2Target {
+  flag: GridCell;
+  hint: string;
+}
+
+const G2_TARGET_POOL: G2Target[] = [
+  { flag: { x: 3, y: 1 }, hint: 'Bimbing Kiko menuju bendera di tengah!' },
+  { flag: { x: 3, y: 2 }, hint: 'Bimbing Kiko menuju bendera di bawah!' },
+  { flag: { x: 3, y: 0 }, hint: 'Bimbing Kiko menuju bendera di atas!' },
+];
+
+interface G3Layout {
+  obstacles: GridCell[];
+  apple: GridCell;
+  star: GridCell;
+  trophy: GridCell;
+}
+
+const G3_LAYOUT_POOL: G3Layout[] = [
+  {
+    obstacles: [{ x: 1, y: 0 }, { x: 2, y: 2 }],
+    apple: { x: 1, y: 1 },
+    star: { x: 2, y: 1 },
+    trophy: { x: 3, y: 2 },
+  },
+  {
+    obstacles: [{ x: 1, y: 2 }, { x: 2, y: 0 }],
+    apple: { x: 1, y: 1 },
+    star: { x: 2, y: 1 },
+    trophy: { x: 3, y: 0 },
+  },
+  {
+    obstacles: [{ x: 1, y: 1 }, { x: 2, y: 1 }],
+    apple: { x: 1, y: 0 },
+    star: { x: 2, y: 2 },
+    trophy: { x: 3, y: 1 },
+  },
+];
+
 export const Level3SungaiCoding: React.FC<Level3Props> = ({
   onCompleteLevel,
   onBackToMap,
@@ -36,17 +111,17 @@ export const Level3SungaiCoding: React.FC<Level3Props> = ({
   const [isLevelFinished, setIsLevelFinished] = useState(false);
 
   // ==========================================
-  // GAME 1 STATE: Step by step directional walking
-  // Grid 4x3. Kiko starts at (0, 1), Stars at (1, 1), (2, 1), Flag at (3, 1)
+  // GAME 1 STATE (RANDOMIZED LAYOUT)
   // ==========================================
-  const [g1KikoPos, setG1KikoPos] = useState<GridCell>({ x: 0, y: 1 });
+  const [g1Layout, setG1Layout] = useState<G1Layout>(() => pickRandom(G1_LAYOUT_POOL));
+  const [g1KikoPos, setG1KikoPos] = useState<GridCell>(() => g1Layout.start);
   const [g1CollectedStars, setG1CollectedStars] = useState<number[]>([]);
   const [g1Success, setG1Success] = useState(false);
 
   // ==========================================
-  // GAME 2 STATE: Program sequencing (Urutkan Langkah & Jalankan)
-  // Target route from (0, 0) to Flag at (3, 1): e.g. RIGHT, RIGHT, DOWN, RIGHT
+  // GAME 2 STATE (RANDOMIZED TARGET)
   // ==========================================
+  const [g2Target, setG2Target] = useState<G2Target>(() => pickRandom(G2_TARGET_POOL));
   const [g2Sequence, setG2Sequence] = useState<Array<'UP' | 'DOWN' | 'LEFT' | 'RIGHT'>>([]);
   const [g2IsRunning, setG2IsRunning] = useState(false);
   const [g2KikoPos, setG2KikoPos] = useState<GridCell>({ x: 0, y: 0 });
@@ -54,12 +129,34 @@ export const Level3SungaiCoding: React.FC<Level3Props> = ({
   const [g2Feedback, setG2Feedback] = useState<string | null>(null);
 
   // ==========================================
-  // GAME 3 STATE: Simple kid-friendly maze crossing
-  // Kiko navigates a 4x4 stepping pond with Apple, Star, and Trophy
+  // GAME 3 STATE (RANDOMIZED MAZE LAYOUT)
   // ==========================================
+  const [g3Layout, setG3Layout] = useState<G3Layout>(() => pickRandom(G3_LAYOUT_POOL));
   const [g3KikoPos, setG3KikoPos] = useState<GridCell>({ x: 0, y: 0 });
   const [g3CollectedItems, setG3CollectedItems] = useState<string[]>([]);
   const [g3Success, setG3Success] = useState(false);
+
+  const handleShuffleAllLevel3 = () => {
+    sound.playPop();
+    const newG1 = pickRandom(G1_LAYOUT_POOL);
+    setG1Layout(newG1);
+    setG1KikoPos(newG1.start);
+    setG1CollectedStars([]);
+    setG1Success(false);
+
+    setG2Target(pickRandom(G2_TARGET_POOL));
+    setG2Sequence([]);
+    setG2KikoPos({ x: 0, y: 0 });
+    setG2ActiveStep(null);
+    setG2Feedback(null);
+
+    setG3Layout(pickRandom(G3_LAYOUT_POOL));
+    setG3KikoPos({ x: 0, y: 0 });
+    setG3CollectedItems([]);
+    setG3Success(false);
+
+    sound.speak('Peta Sungai Coding telah diacak ulang!');
+  };
 
   // ------------------------------------------
   // GAME 1 HANDLERS
@@ -79,19 +176,19 @@ export const Level3SungaiCoding: React.FC<Level3Props> = ({
     setG1KikoPos({ x: nextX, y: nextY });
 
     // Check star collection
-    if (nextX === 1 && nextY === 1 && !g1CollectedStars.includes(1)) {
+    if (nextX === g1Layout.star1.x && nextY === g1Layout.star1.y && !g1CollectedStars.includes(1)) {
       sound.playSuccess();
       setG1CollectedStars((prev) => [...prev, 1]);
       setStarsThisLevel((s) => s + 1);
     }
-    if (nextX === 2 && nextY === 1 && !g1CollectedStars.includes(2)) {
+    if (nextX === g1Layout.star2.x && nextY === g1Layout.star2.y && !g1CollectedStars.includes(2)) {
       sound.playSuccess();
       setG1CollectedStars((prev) => [...prev, 2]);
       setStarsThisLevel((s) => s + 1);
     }
 
-    // Check reached flag (3, 1)
-    if (nextX === 3 && nextY === 1) {
+    // Check reached flag
+    if (nextX === g1Layout.flag.x && nextY === g1Layout.flag.y) {
       sound.playSuccess();
       sound.speak('Wow! Kiko sampai ke bendera!');
       setG1Success(true);
@@ -106,7 +203,7 @@ export const Level3SungaiCoding: React.FC<Level3Props> = ({
 
   const handleResetG1 = () => {
     sound.playPop();
-    setG1KikoPos({ x: 0, y: 1 });
+    setG1KikoPos(g1Layout.start);
     setG1CollectedStars([]);
     setG1Success(false);
   };
@@ -119,12 +216,6 @@ export const Level3SungaiCoding: React.FC<Level3Props> = ({
     sound.playPop();
     setG2Sequence((prev) => [...prev, cmd]);
     setG2Feedback(null);
-  };
-
-  const handleRemoveLastG2Command = () => {
-    if (g2IsRunning || g2Sequence.length === 0) return;
-    sound.playPop();
-    setG2Sequence((prev) => prev.slice(0, -1));
   };
 
   const handleClearG2 = () => {
@@ -166,8 +257,8 @@ export const Level3SungaiCoding: React.FC<Level3Props> = ({
     setG2ActiveStep(null);
     setG2IsRunning(false);
 
-    // Goal is (3, 1) or (3, 2)
-    if ((curX === 3 && curY === 1) || (curX === 3 && curY === 2)) {
+    // Check if reached destination
+    if (curX === g2Target.flag.x && curY === g2Target.flag.y) {
       sound.playSuccess();
       sound.speak('WOW! Kiko sampai! Codingmu berhasil!');
       setG2Feedback('success');
@@ -187,12 +278,6 @@ export const Level3SungaiCoding: React.FC<Level3Props> = ({
   // ------------------------------------------
   // GAME 3 HANDLERS: Friendly Maze
   // ------------------------------------------
-  // Obstacles: (1, 0), (2, 2) - visual friendly rocks
-  const g3Obstacles = [
-    { x: 1, y: 0 },
-    { x: 2, y: 2 },
-  ];
-
   const handleG3Move = (direction: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT') => {
     if (g3Success) return;
 
@@ -205,7 +290,7 @@ export const Level3SungaiCoding: React.FC<Level3Props> = ({
     if (direction === 'RIGHT' && nextX < 3) nextX += 1;
 
     // Check if hitting obstacle rock
-    const hitRock = g3Obstacles.some((o) => o.x === nextX && o.y === nextY);
+    const hitRock = g3Layout.obstacles.some((o) => o.x === nextX && o.y === nextY);
     if (hitRock) {
       sound.playTryAgain();
       sound.speak('Ada batu besar! Ayo cari jalan lain!');
@@ -215,22 +300,22 @@ export const Level3SungaiCoding: React.FC<Level3Props> = ({
     sound.playStep();
     setG3KikoPos({ x: nextX, y: nextY });
 
-    // Collect Apple at (1, 1)
-    if (nextX === 1 && nextY === 1 && !g3CollectedItems.includes('apple')) {
+    // Collect Apple
+    if (nextX === g3Layout.apple.x && nextY === g3Layout.apple.y && !g3CollectedItems.includes('apple')) {
       sound.playSuccess();
       sound.speak('Yummy! Kiko dapat apel segar!');
       setG3CollectedItems((prev) => [...prev, 'apple']);
       setStarsThisLevel((s) => s + 1);
     }
-    // Collect Star at (2, 1)
-    if (nextX === 2 && nextY === 1 && !g3CollectedItems.includes('star')) {
+    // Collect Star
+    if (nextX === g3Layout.star.x && nextY === g3Layout.star.y && !g3CollectedItems.includes('star')) {
       sound.playSuccess();
       sound.speak('Kiko dapat bintang berkilau!');
       setG3CollectedItems((prev) => [...prev, 'star']);
       setStarsThisLevel((s) => s + 1);
     }
-    // Collect Trophy at (3, 2)
-    if (nextX === 3 && nextY === 2) {
+    // Collect Trophy
+    if (nextX === g3Layout.trophy.x && nextY === g3Layout.trophy.y) {
       sound.playSuccess();
       sound.speak('Horee! Kiko berhasil melewati labirin dan menemukan piala!');
       setG3Success(true);
@@ -268,52 +353,63 @@ export const Level3SungaiCoding: React.FC<Level3Props> = ({
           <span className="text-2xl sm:text-3xl">💻</span>
           <div>
             <span className="text-xs font-black text-sky-600 uppercase tracking-wide">
-              LEVEL 3 • CODING TK A
+              LEVEL 3 • CODING TK A (JALUR DIACAK)
             </span>
             <h2 className="text-lg sm:text-xl font-black text-slate-800">SUNGAI CODING</h2>
           </div>
         </div>
 
-        {/* Sub-game switcher tabs */}
-        <div className="flex items-center gap-1.5 bg-sky-50 p-1.5 rounded-2xl border-2 border-sky-200">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Sub-game switcher tabs */}
+          <div className="flex items-center gap-1.5 bg-sky-50 p-1.5 rounded-2xl border-2 border-sky-200">
+            <button
+              onClick={() => {
+                sound.playPop();
+                setGameMode(1);
+              }}
+              className={`px-3 py-1.5 rounded-xl font-black text-xs sm:text-sm transition cursor-pointer ${
+                gameMode === 1
+                  ? 'bg-sky-500 text-white shadow-sm'
+                  : 'text-sky-800 hover:bg-sky-100'
+              }`}
+            >
+              1. Jalan Kiko {g1Success && '✅'}
+            </button>
+            <button
+              onClick={() => {
+                sound.playPop();
+                setGameMode(2);
+              }}
+              className={`px-3 py-1.5 rounded-xl font-black text-xs sm:text-sm transition cursor-pointer ${
+                gameMode === 2
+                  ? 'bg-sky-500 text-white shadow-sm'
+                  : 'text-sky-800 hover:bg-sky-100'
+              }`}
+            >
+              2. Urutkan Langkah {g2Feedback === 'success' && '✅'}
+            </button>
+            <button
+              onClick={() => {
+                sound.playPop();
+                setGameMode(3);
+              }}
+              className={`px-3 py-1.5 rounded-xl font-black text-xs sm:text-sm transition cursor-pointer ${
+                gameMode === 3
+                  ? 'bg-sky-500 text-white shadow-sm'
+                  : 'text-sky-800 hover:bg-sky-100'
+              }`}
+            >
+              3. Labirin Sungai {g3Success && '✅'}
+            </button>
+          </div>
+
           <button
-            onClick={() => {
-              sound.playPop();
-              setGameMode(1);
-            }}
-            className={`px-3 py-1.5 rounded-xl font-black text-xs sm:text-sm transition cursor-pointer ${
-              gameMode === 1
-                ? 'bg-sky-500 text-white shadow-sm'
-                : 'text-sky-800 hover:bg-sky-100'
-            }`}
+            onClick={handleShuffleAllLevel3}
+            title="Acak Peta Sungai"
+            className="px-3 py-1.5 bg-sky-100 hover:bg-sky-200 text-sky-900 border-2 border-sky-300 rounded-2xl font-black text-xs flex items-center gap-1 transition active:scale-95 cursor-pointer"
           >
-            1. Jalan Kiko {g1Success && '✅'}
-          </button>
-          <button
-            onClick={() => {
-              sound.playPop();
-              setGameMode(2);
-            }}
-            className={`px-3 py-1.5 rounded-xl font-black text-xs sm:text-sm transition cursor-pointer ${
-              gameMode === 2
-                ? 'bg-sky-500 text-white shadow-sm'
-                : 'text-sky-800 hover:bg-sky-100'
-            }`}
-          >
-            2. Urutkan Langkah {g2Feedback === 'success' && '✅'}
-          </button>
-          <button
-            onClick={() => {
-              sound.playPop();
-              setGameMode(3);
-            }}
-            className={`px-3 py-1.5 rounded-xl font-black text-xs sm:text-sm transition cursor-pointer ${
-              gameMode === 3
-                ? 'bg-sky-500 text-white shadow-sm'
-                : 'text-sky-800 hover:bg-sky-100'
-            }`}
-          >
-            3. Labirin Sungai {g3Success && '✅'}
+            <Shuffle className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Acak Jalur</span>
           </button>
         </div>
       </div>
@@ -332,7 +428,7 @@ export const Level3SungaiCoding: React.FC<Level3Props> = ({
           </div>
 
           {/* =========================================================
-              SUB-GAME 1: JALAN MENUJU KIKO (Direct step-by-step)
+              SUB-GAME 1: JALAN MENUJU KIKO (RANDOMIZED GRID)
              ========================================================= */}
           {gameMode === 1 && (
             <div className="flex flex-col items-center">
@@ -351,26 +447,23 @@ export const Level3SungaiCoding: React.FC<Level3Props> = ({
                   {[0, 1, 2].map((y) =>
                     [0, 1, 2, 3].map((x) => {
                       const isKikoHere = g1KikoPos.x === x && g1KikoPos.y === y;
-                      const isFlagHere = x === 3 && y === 1;
-                      const isStar1Here = x === 1 && y === 1 && !g1CollectedStars.includes(1);
-                      const isStar2Here = x === 2 && y === 1 && !g1CollectedStars.includes(2);
+                      const isFlagHere = x === g1Layout.flag.x && y === g1Layout.flag.y;
+                      const isStar1Here = x === g1Layout.star1.x && y === g1Layout.star1.y && !g1CollectedStars.includes(1);
+                      const isStar2Here = x === g1Layout.star2.x && y === g1Layout.star2.y && !g1CollectedStars.includes(2);
 
                       return (
                         <div
                           key={`${x}-${y}`}
                           className="h-16 sm:h-20 rounded-2xl bg-white/80 border-3 border-sky-300 flex items-center justify-center relative shadow-sm transition-all"
                         >
-                          {/* River ripple indicator */}
                           <span className="text-[10px] text-sky-400 absolute top-1 left-1.5 opacity-60">
                             🌊
                           </span>
 
-                          {/* Items */}
                           {isStar1Here && <span className="text-2xl sm:text-3xl animate-bounce">⭐</span>}
                           {isStar2Here && <span className="text-2xl sm:text-3xl animate-bounce">⭐</span>}
                           {isFlagHere && <span className="text-3xl sm:text-4xl">🏁</span>}
 
-                          {/* Kiko Bunny */}
                           {isKikoHere && (
                             <div className="scale-75 sm:scale-90 animate-cute-bob z-10">
                               <KikoCharacter size="sm" mood={g1Success ? 'jumping' : 'happy'} />
@@ -400,7 +493,7 @@ export const Level3SungaiCoding: React.FC<Level3Props> = ({
                 </div>
               )}
 
-              {/* Directional Pad Buttons (Big tactile controls) */}
+              {/* Directional Pad Buttons */}
               <div className="flex flex-col items-center gap-2">
                 <button
                   id="btn-move-up"
@@ -448,7 +541,7 @@ export const Level3SungaiCoding: React.FC<Level3Props> = ({
           )}
 
           {/* =========================================================
-              SUB-GAME 2: URUTKAN LANGKAH (Sequencing & Run Button)
+              SUB-GAME 2: URUTKAN LANGKAH (RANDOMIZED TARGET)
              ========================================================= */}
           {gameMode === 2 && (
             <div className="flex flex-col items-center">
@@ -457,7 +550,7 @@ export const Level3SungaiCoding: React.FC<Level3Props> = ({
                   Permainan 2: Urutkan Langkah Kiko
                 </h3>
                 <p className="text-xs sm:text-sm font-bold text-slate-600">
-                  Susun kartu perintah jalan, lalu klik tombol biru <span className="text-blue-600 font-black">JALANKAN 🚀</span>!
+                  {g2Target.hint} Susun kartu panah lalu klik <span className="text-blue-600 font-black">JALANKAN 🚀</span>!
                 </p>
               </div>
 
@@ -467,7 +560,7 @@ export const Level3SungaiCoding: React.FC<Level3Props> = ({
                   {[0, 1, 2].map((y) =>
                     [0, 1, 2, 3].map((x) => {
                       const isKikoHere = g2KikoPos.x === x && g2KikoPos.y === y;
-                      const isFlagHere = x === 3 && y === 1;
+                      const isFlagHere = x === g2Target.flag.x && y === g2Target.flag.y;
 
                       return (
                         <div
@@ -603,7 +696,7 @@ export const Level3SungaiCoding: React.FC<Level3Props> = ({
           )}
 
           {/* =========================================================
-              SUB-GAME 3: PILIH JALAN YANG BENAR (Labirin Ramah TK A)
+              SUB-GAME 3: PILIH JALAN YANG BENAR (RANDOMIZED MAZE)
              ========================================================= */}
           {gameMode === 3 && (
             <div className="flex flex-col items-center">
@@ -622,10 +715,10 @@ export const Level3SungaiCoding: React.FC<Level3Props> = ({
                   {[0, 1, 2].map((y) =>
                     [0, 1, 2, 3].map((x) => {
                       const isKikoHere = g3KikoPos.x === x && g3KikoPos.y === y;
-                      const isRock = g3Obstacles.some((o) => o.x === x && o.y === y);
-                      const isApple = x === 1 && y === 1 && !g3CollectedItems.includes('apple');
-                      const isStar = x === 2 && y === 1 && !g3CollectedItems.includes('star');
-                      const isTrophy = x === 3 && y === 2;
+                      const isRock = g3Layout.obstacles.some((o) => o.x === x && o.y === y);
+                      const isApple = x === g3Layout.apple.x && y === g3Layout.apple.y && !g3CollectedItems.includes('apple');
+                      const isStar = x === g3Layout.star.x && y === g3Layout.star.y && !g3CollectedItems.includes('star');
+                      const isTrophy = x === g3Layout.trophy.x && y === g3Layout.trophy.y;
 
                       return (
                         <div

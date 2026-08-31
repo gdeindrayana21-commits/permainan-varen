@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import confetti from 'canvas-confetti';
-import { Volume2, Sparkles, ArrowRight, Star, Check } from 'lucide-react';
+import { Volume2, Sparkles, ArrowRight, Star, Shuffle } from 'lucide-react';
 import { KikoCharacter, PipiCharacter, SpeechBubble } from '../Characters';
 import { sound } from '../../utils/sound';
+import { shuffleArray, getRandomSubset } from '../../utils/shuffle';
 
 interface Level2Props {
   onCompleteLevel: (levelId: number, starsEarned: number, readingPoints: number) => void;
@@ -11,7 +12,14 @@ interface Level2Props {
 
 type ActivityType = 'match_image' | 'choose_word' | 'merge_syllables' | 'family_word' | 'word_match';
 
-interface Level2Activity {
+interface Level2Option {
+  id: string;
+  text: string;
+  emoji: string;
+  isCorrect: boolean;
+}
+
+interface Level2ActivityRaw {
   id: number;
   type: ActivityType;
   title: string;
@@ -19,15 +27,15 @@ interface Level2Activity {
   syllable1?: string;
   syllable2?: string;
   fullWord?: string;
-  options: Array<{
-    id: string;
-    text: string;
-    emoji: string;
-    isCorrect: boolean;
-  }>;
+  options: Level2Option[];
 }
 
-const ACTIVITIES: Level2Activity[] = [
+interface Level2ActivityPrepared extends Level2ActivityRaw {
+  options: Level2Option[]; // Shuffled!
+}
+
+// Master pool of reading & syllable challenges for TK A
+const MASTER_ACTIVITIES: Level2ActivityRaw[] = [
   {
     id: 1,
     type: 'match_image',
@@ -93,12 +101,91 @@ const ACTIVITIES: Level2Activity[] = [
       { id: 'kaki', text: 'KAKI', emoji: '🦶', isCorrect: false },
     ],
   },
+  {
+    id: 6,
+    type: 'match_image',
+    title: 'Suku Kata Awal "SA"',
+    instruction: 'Gambar mana yang dimulai dengan bunyi SA?',
+    syllable1: 'SA',
+    options: [
+      { id: 'sapi', text: 'SAPI', emoji: '🐄', isCorrect: true },
+      { id: 'kuda', text: 'KUDA', emoji: '🐴', isCorrect: false },
+      { id: 'bebek', text: 'BEBEK', emoji: '🦆', isCorrect: false },
+    ],
+  },
+  {
+    id: 7,
+    type: 'choose_word',
+    title: 'Suku Kata: KU – DA',
+    instruction: 'Jika KU dan DA digabung, menjadi kata apa?',
+    syllable1: 'KU',
+    syllable2: 'DA',
+    options: [
+      { id: 'kuda', text: 'KUDA', emoji: '🐴', isCorrect: true },
+      { id: 'kaki', text: 'KAKI', emoji: '🦶', isCorrect: false },
+      { id: 'kucing', text: 'KUCING', emoji: '🐱', isCorrect: false },
+    ],
+  },
+  {
+    id: 8,
+    type: 'merge_syllables',
+    title: 'Satukan: MA + TA',
+    instruction: 'Sentuh suku kata MA dan TA untuk menyatukan menjadi MATA!',
+    syllable1: 'MA',
+    syllable2: 'TA',
+    fullWord: 'MATA',
+    options: [
+      { id: 'mata', text: 'MATA', emoji: '👀', isCorrect: true },
+      { id: 'madu', text: 'MADU', emoji: '🍯', isCorrect: false },
+      { id: 'mobil', text: 'MOBIL', emoji: '🚗', isCorrect: false },
+    ],
+  },
+  {
+    id: 9,
+    type: 'choose_word',
+    title: 'Suku Kata: RO – TI',
+    instruction: 'Jika RO dan TI digabung, menjadi makanan apa?',
+    syllable1: 'RO',
+    syllable2: 'TI',
+    options: [
+      { id: 'roti', text: 'ROTI', emoji: '🍞', isCorrect: true },
+      { id: 'rusa', text: 'RUSA', emoji: '🦌', isCorrect: false },
+      { id: 'roda', text: 'RODA', emoji: '🛞', isCorrect: false },
+    ],
+  },
+  {
+    id: 10,
+    type: 'word_match',
+    title: 'Suku Kata: KA – KI',
+    instruction: 'Pilih gambar yang cocok untuk kata KA – KI!',
+    syllable1: 'KA',
+    syllable2: 'KI',
+    options: [
+      { id: 'kaki', text: 'KAKI', emoji: '🦶', isCorrect: true },
+      { id: 'kucing', text: 'KUCING', emoji: '🐱', isCorrect: false },
+      { id: 'baju', text: 'BAJU', emoji: '👕', isCorrect: false },
+    ],
+  },
 ];
+
+/**
+ * Prepares randomized activities and shuffles the options inside each activity
+ */
+function prepareRandomActivities(): Level2ActivityPrepared[] {
+  const selected = getRandomSubset(MASTER_ACTIVITIES, 5);
+  return selected.map((act) => ({
+    ...act,
+    // Shuffle the answer options so correct answer is randomly in slot 0, 1, or 2
+    options: shuffleArray(act.options),
+  }));
+}
 
 export const Level2TamanMembaca: React.FC<Level2Props> = ({
   onCompleteLevel,
   onBackToMap,
 }) => {
+  // State holds randomized activities with shuffled options
+  const [activities, setActivities] = useState<Level2ActivityPrepared[]>(() => prepareRandomActivities());
   const [currentIdx, setCurrentIdx] = useState(0);
   const [selectedOptId, setSelectedOptId] = useState<string | null>(null);
   const [merged, setMerged] = useState(false);
@@ -109,9 +196,21 @@ export const Level2TamanMembaca: React.FC<Level2Props> = ({
   const [starsThisLevel, setStarsThisLevel] = useState(0);
   const [isCompleted, setIsCompleted] = useState(false);
 
-  const currentAct = ACTIVITIES[currentIdx];
+  const currentAct = activities[currentIdx] || activities[0];
 
-  const handleSelectOption = (opt: { id: string; text: string; isCorrect: boolean }) => {
+  // Manual shuffle of activities & answers
+  const handleShuffleNewActivities = () => {
+    sound.playPop();
+    const newActs = prepareRandomActivities();
+    setActivities(newActs);
+    setCurrentIdx(0);
+    setSelectedOptId(null);
+    setMerged(false);
+    setFeedback({ status: 'idle', message: '' });
+    sound.speak('Aktivitas membaca baru telah diacak!');
+  };
+
+  const handleSelectOption = (opt: Level2Option) => {
     if (feedback.status === 'correct') return;
 
     sound.playPop();
@@ -137,7 +236,7 @@ export const Level2TamanMembaca: React.FC<Level2Props> = ({
       }
 
       setTimeout(() => {
-        if (currentIdx < ACTIVITIES.length - 1) {
+        if (currentIdx < activities.length - 1) {
           setCurrentIdx((prev) => prev + 1);
           setSelectedOptId(null);
           setMerged(false);
@@ -183,36 +282,48 @@ export const Level2TamanMembaca: React.FC<Level2Props> = ({
   return (
     <div className="min-h-[calc(100vh-68px)] bg-gradient-to-b from-rose-100 via-pink-50 to-amber-100 p-4 sm:p-8 flex flex-col items-center justify-between">
       {/* Top Header Bar */}
-      <div className="w-full max-w-2xl flex items-center justify-between bg-white/90 backdrop-blur-sm border-3 border-pink-300 rounded-3xl px-5 py-3 shadow-sm mb-4">
+      <div className="w-full max-w-2xl flex flex-wrap items-center justify-between bg-white/95 backdrop-blur-sm border-3 border-pink-300 rounded-3xl px-5 py-3 shadow-sm mb-4 gap-2">
         <div className="flex items-center gap-2">
           <span className="text-2xl sm:text-3xl">🌸</span>
           <div>
             <span className="text-xs font-black text-pink-600 uppercase tracking-wide">
-              LEVEL 2
+              LEVEL 2 • SOAL & JAWABAN DIACAK
             </span>
             <h2 className="text-lg sm:text-xl font-black text-slate-800">TAMAN MEMBACA</h2>
           </div>
         </div>
 
-        {/* Activity Counter */}
-        <div className="flex items-center gap-1.5 bg-pink-50 px-3.5 py-1.5 rounded-2xl border-2 border-pink-200">
-          <span className="font-extrabold text-xs sm:text-sm text-pink-800">
-            Aktivitas {currentIdx + 1} dari {ACTIVITIES.length}
-          </span>
-          <div className="flex gap-1 ml-1">
-            {ACTIVITIES.map((_, i) => (
-              <span
-                key={i}
-                className={`w-2.5 h-2.5 rounded-full ${
-                  i < currentIdx
-                    ? 'bg-pink-500'
-                    : i === currentIdx
-                    ? 'bg-amber-400 animate-pulse'
-                    : 'bg-slate-200'
-                }`}
-              />
-            ))}
+        <div className="flex items-center gap-2">
+          {/* Activity Counter */}
+          <div className="flex items-center gap-1.5 bg-pink-50 px-3.5 py-1.5 rounded-2xl border-2 border-pink-200">
+            <span className="font-extrabold text-xs sm:text-sm text-pink-800">
+              Soal {currentIdx + 1}/{activities.length}
+            </span>
+            <div className="flex gap-1 ml-1">
+              {activities.map((_, i) => (
+                <span
+                  key={i}
+                  className={`w-2.5 h-2.5 rounded-full ${
+                    i < currentIdx
+                      ? 'bg-pink-500'
+                      : i === currentIdx
+                      ? 'bg-amber-400 animate-pulse'
+                      : 'bg-slate-200'
+                  }`}
+                />
+              ))}
+            </div>
           </div>
+
+          {/* Shuffle Button */}
+          <button
+            onClick={handleShuffleNewActivities}
+            title="Acak Soal Baru"
+            className="px-3 py-1.5 bg-pink-100 hover:bg-pink-200 text-pink-900 border-2 border-pink-300 rounded-2xl font-black text-xs flex items-center gap-1 transition active:scale-95 cursor-pointer"
+          >
+            <Shuffle className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Acak Soal</span>
+          </button>
         </div>
       </div>
 
@@ -228,7 +339,7 @@ export const Level2TamanMembaca: React.FC<Level2Props> = ({
             <div className="flex-1 text-left">
               <SpeechBubble
                 speaker="kiko"
-                text="Ayo membaca bersama Kiko di taman bunga!"
+                text="Ayo membaca bersama Kiko di taman bunga! Pilihan jawaban selalu diacak lho!"
               />
             </div>
           </div>
@@ -302,15 +413,15 @@ export const Level2TamanMembaca: React.FC<Level2Props> = ({
             )}
           </div>
 
-          {/* Options Grid */}
+          {/* Shuffled Options Grid */}
           <div className="grid grid-cols-3 gap-3 sm:gap-4 mt-2">
-            {currentAct.options.map((opt) => {
+            {currentAct.options.map((opt, optIdx) => {
               const isSelected = selectedOptId === opt.id;
               const isCorrect = feedback.status === 'correct' && opt.isCorrect;
 
               return (
                 <button
-                  key={opt.id}
+                  key={`${currentAct.id}-${opt.id}-${optIdx}`}
                   id={`btn-reading-opt-${opt.id}`}
                   onClick={() => handleSelectOption(opt)}
                   disabled={feedback.status === 'correct'}
@@ -349,7 +460,7 @@ export const Level2TamanMembaca: React.FC<Level2Props> = ({
             Luar Biasa, Jago Membaca! 📖✨
           </p>
           <p className="text-base sm:text-lg font-bold text-slate-600 mb-6">
-            Kamu sudah bisa membaca kata bola, baju, buku, mama, dan topi!
+            Kamu sudah bisa membaca suku kata dan kata bergambar bersama Kiko!
           </p>
 
           <div className="inline-flex items-center gap-2 bg-amber-100 border-3 border-amber-400 px-6 py-3 rounded-2xl mb-8">
@@ -380,7 +491,7 @@ export const Level2TamanMembaca: React.FC<Level2Props> = ({
         >
           ← Kembali ke Peta
         </button>
-        <span>Petualangan TK A • Taman Suku Kata</span>
+        <span>Petualangan TK A • Soal & Jawaban Diacak</span>
       </div>
     </div>
   );

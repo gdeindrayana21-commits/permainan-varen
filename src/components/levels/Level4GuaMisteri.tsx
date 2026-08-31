@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import confetti from 'canvas-confetti';
-import { Key, Sparkles, ArrowRight, ArrowUp, ArrowDown, ArrowLeft, Star, Volume2 } from 'lucide-react';
+import { Key, Sparkles, ArrowRight, ArrowUp, ArrowDown, ArrowLeft, Star, Volume2, Shuffle } from 'lucide-react';
 import { KikoCharacter, PipiCharacter, SpeechBubble } from '../Characters';
 import { sound } from '../../utils/sound';
+import { shuffleArray, pickRandom, getRandomSubset } from '../../utils/shuffle';
 
 interface Level4Props {
   onCompleteLevel: (levelId: number, starsEarned: number, readingPoints: number, codingPoints: number) => void;
@@ -11,16 +12,130 @@ interface Level4Props {
 
 type Stage = 'doors' | 'word_puzzle' | 'cave_path';
 
+interface WordChainPuzzle {
+  letter: string;
+  syllable: string;
+  correctWord: string;
+  options: { text: string; emoji: string; correct: boolean }[];
+}
+
+const WORD_CHAIN_POOL: WordChainPuzzle[] = [
+  {
+    letter: 'B',
+    syllable: 'BA',
+    correctWord: 'BOLA',
+    options: [
+      { text: 'BOLA', emoji: '⚽', correct: true },
+      { text: 'BUKU', emoji: '📖', correct: false },
+      { text: 'BEBEK', emoji: '🦆', correct: false },
+    ],
+  },
+  {
+    letter: 'B',
+    syllable: 'BU',
+    correctWord: 'BUKU',
+    options: [
+      { text: 'BUKU', emoji: '📖', correct: true },
+      { text: 'BOLA', emoji: '⚽', correct: false },
+      { text: 'BAJU', emoji: '👕', correct: false },
+    ],
+  },
+  {
+    letter: 'M',
+    syllable: 'MA',
+    correctWord: 'MATA',
+    options: [
+      { text: 'MATA', emoji: '👀', correct: true },
+      { text: 'MADU', emoji: '🍯', correct: false },
+      { text: 'MOBIL', emoji: '🚗', correct: false },
+    ],
+  },
+  {
+    letter: 'K',
+    syllable: 'KU',
+    correctWord: 'KUDA',
+    options: [
+      { text: 'KUDA', emoji: '🐴', correct: true },
+      { text: 'KAKI', emoji: '🦶', correct: false },
+      { text: 'KUCING', emoji: '🐱', correct: false },
+    ],
+  },
+  {
+    letter: 'T',
+    syllable: 'TO',
+    correctWord: 'TOPI',
+    options: [
+      { text: 'TOPI', emoji: '🧢', correct: true },
+      { text: 'TOMAT', emoji: '🍅', correct: false },
+      { text: 'TALI', emoji: '🪢', correct: false },
+    ],
+  },
+  {
+    letter: 'S',
+    syllable: 'SA',
+    correctWord: 'SAPI',
+    options: [
+      { text: 'SAPI', emoji: '🐄', correct: true },
+      { text: 'SUSU', emoji: '🥛', correct: false },
+      { text: 'SAPU', emoji: '🧹', correct: false },
+    ],
+  },
+  {
+    letter: 'R',
+    syllable: 'RO',
+    correctWord: 'ROTI',
+    options: [
+      { text: 'ROTI', emoji: '🍞', correct: true },
+      { text: 'RUSA', emoji: '🦌', correct: false },
+      { text: 'RODA', emoji: '🛞', correct: false },
+    ],
+  },
+];
+
+const LETTER_POOL = ['B', 'D', 'K', 'M', 'S', 'T', 'P', 'R', 'A', 'E'];
+const ALPHABET = ['A', 'B', 'C', 'D', 'E', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'R', 'S', 'T', 'U'];
+
+function generateRandomDoorChallenge() {
+  const target = pickRandom(LETTER_POOL);
+  const otherLetters = ALPHABET.filter((l) => l !== target);
+  const distractors = getRandomSubset(otherLetters, 2);
+  const doors = shuffleArray([target, ...distractors]);
+  return { target, doors };
+}
+
+function generateRandomWordChain() {
+  const raw = pickRandom(WORD_CHAIN_POOL);
+  return {
+    ...raw,
+    options: shuffleArray(raw.options),
+  };
+}
+
+const CAVE_KEY_SPOTS = [
+  { x: 3, y: 1 },
+  { x: 3, y: 0 },
+  { x: 3, y: 2 },
+  { x: 2, y: 2 },
+];
+
 export const Level4GuaMisteri: React.FC<Level4Props> = ({
   onCompleteLevel,
   onBackToMap,
 }) => {
   const [stage, setStage] = useState<Stage>('doors');
+  // Randomized door challenge
+  const [doorChallenge, setDoorChallenge] = useState(() => generateRandomDoorChallenge());
   const [selectedDoor, setSelectedDoor] = useState<string | null>(null);
+
+  // Randomized word chain challenge
+  const [wordChain, setWordChain] = useState(() => generateRandomWordChain());
   const [selectedWord, setSelectedWord] = useState<string | null>(null);
-  const [keyPosition, setKeyPosition] = useState({ x: 3, y: 1 });
+
+  // Randomized Key position
+  const [keyPosition, setKeyPosition] = useState(() => pickRandom(CAVE_KEY_SPOTS));
   const [kikoCavePos, setKikoCavePos] = useState({ x: 0, y: 1 });
   const [hasKey, setHasKey] = useState(false);
+
   const [starsThisLevel, setStarsThisLevel] = useState(0);
   const [isCompleted, setIsCompleted] = useState(false);
   const [feedback, setFeedback] = useState<{ status: 'idle' | 'correct' | 'retry'; message: string }>({
@@ -28,16 +143,30 @@ export const Level4GuaMisteri: React.FC<Level4Props> = ({
     message: '',
   });
 
+  const handleShuffleAllChallenges = () => {
+    sound.playPop();
+    setDoorChallenge(generateRandomDoorChallenge());
+    setWordChain(generateRandomWordChain());
+    setKeyPosition(pickRandom(CAVE_KEY_SPOTS));
+    setStage('doors');
+    setSelectedDoor(null);
+    setSelectedWord(null);
+    setHasKey(false);
+    setKikoCavePos({ x: 0, y: 1 });
+    setFeedback({ status: 'idle', message: '' });
+    sound.speak('Tantangan Gua Misteri diacak ulang!');
+  };
+
   // Stage 1: Door Selection
   const handleSelectDoor = (doorLetter: string) => {
     sound.playPop();
     setSelectedDoor(doorLetter);
 
-    if (doorLetter === 'B') {
+    if (doorLetter === doorChallenge.target) {
       sound.playSuccess();
-      sound.speak('Hebat! Pintu B terbuka!');
+      sound.speak(`Hebat! Pintu ${doorChallenge.target} terbuka!`);
       setStarsThisLevel((s) => s + 2);
-      setFeedback({ status: 'correct', message: '🎉 HEBAT! Pintu Huruf B Terbuka!' });
+      setFeedback({ status: 'correct', message: `🎉 HEBAT! Pintu Huruf ${doorChallenge.target} Terbuka!` });
 
       try {
         confetti({ particleCount: 40, spread: 60 });
@@ -52,8 +181,8 @@ export const Level4GuaMisteri: React.FC<Level4Props> = ({
       }, 1400);
     } else {
       sound.playTryAgain();
-      sound.speak('Coba lagi, Petualang! Cari pintu dengan huruf B!');
-      setFeedback({ status: 'retry', message: 'Coba lagi, Petualang! Cari huruf B 😊' });
+      sound.speak(`Coba lagi, Petualang! Cari pintu dengan huruf ${doorChallenge.target}!`);
+      setFeedback({ status: 'retry', message: `Coba lagi, Petualang! Cari huruf ${doorChallenge.target} 😊` });
       setTimeout(() => {
         setSelectedDoor(null);
         setFeedback({ status: 'idle', message: '' });
@@ -61,16 +190,19 @@ export const Level4GuaMisteri: React.FC<Level4Props> = ({
     }
   };
 
-  // Stage 2: Suku kata puzzle (B -> BA -> BOLA)
+  // Stage 2: Suku kata puzzle
   const handleSelectWord = (word: string) => {
     sound.playPop();
     setSelectedWord(word);
 
-    if (word === 'BOLA') {
+    if (word === wordChain.correctWord) {
       sound.playSuccess();
-      sound.speak('B -> BA -> BOLA! Hebat sekali!');
+      sound.speak(`${wordChain.letter} lalu ${wordChain.syllable} menjadi ${wordChain.correctWord}! Hebat sekali!`);
       setStarsThisLevel((s) => s + 2);
-      setFeedback({ status: 'correct', message: '🎉 BENAR! B -> BA -> BOLA!' });
+      setFeedback({
+        status: 'correct',
+        message: `🎉 BENAR! ${wordChain.letter} ➜ ${wordChain.syllable} ➜ ${wordChain.correctWord}!`,
+      });
 
       try {
         confetti({ particleCount: 45, spread: 60 });
@@ -85,8 +217,8 @@ export const Level4GuaMisteri: React.FC<Level4Props> = ({
       }, 1400);
     } else {
       sound.playTryAgain();
-      sound.speak('Coba lagi! Cari kata BOLA yang dimulai dari B dan BA!');
-      setFeedback({ status: 'retry', message: 'Coba lagi! Cari kata BOLA 😊' });
+      sound.speak(`Coba lagi! Cari kata yang dimulai dari ${wordChain.syllable}!`);
+      setFeedback({ status: 'retry', message: `Coba lagi! Cari kata dari suku kata ${wordChain.syllable} 😊` });
       setTimeout(() => {
         setSelectedWord(null);
         setFeedback({ status: 'idle', message: '' });
@@ -109,8 +241,8 @@ export const Level4GuaMisteri: React.FC<Level4Props> = ({
 
     setKikoCavePos({ x: nextX, y: nextY });
 
-    // Grab Golden Key at (3, 1)
-    if (nextX === 3 && nextY === 1) {
+    // Grab Golden Key at keyPosition
+    if (nextX === keyPosition.x && nextY === keyPosition.y) {
       sound.playSuccess();
       sound.speak('Horee! Kiko mendapatkan Kunci Emas Gua Misteri!');
       setHasKey(true);
@@ -136,24 +268,35 @@ export const Level4GuaMisteri: React.FC<Level4Props> = ({
   return (
     <div className="min-h-[calc(100vh-68px)] bg-gradient-to-b from-indigo-200 via-purple-100 to-amber-100 p-4 sm:p-8 flex flex-col items-center justify-between">
       {/* Top Level Bar */}
-      <div className="w-full max-w-2xl flex items-center justify-between bg-white/95 backdrop-blur-sm border-3 border-indigo-300 rounded-3xl px-5 py-3 shadow-sm mb-4">
+      <div className="w-full max-w-2xl flex flex-wrap items-center justify-between bg-white/95 backdrop-blur-sm border-3 border-indigo-300 rounded-3xl px-5 py-3 shadow-sm mb-4 gap-2">
         <div className="flex items-center gap-2">
           <span className="text-2xl sm:text-3xl">🕵️</span>
           <div>
             <span className="text-xs font-black text-indigo-600 uppercase tracking-wide">
-              LEVEL 4 • MEMBACA + CODING
+              LEVEL 4 • SOAL & JAWABAN DIACAK
             </span>
             <h2 className="text-lg sm:text-xl font-black text-slate-800">GUA MISTERI</h2>
           </div>
         </div>
 
-        {/* Stage Indicator */}
-        <div className="flex items-center gap-1.5 bg-indigo-50 px-3 py-1.5 rounded-2xl border-2 border-indigo-200 text-xs sm:text-sm font-black text-indigo-800">
-          <span>
-            {stage === 'doors' && 'Tahap 1: Pintu Rahasia 🚪'}
-            {stage === 'word_puzzle' && 'Tahap 2: Kata Berantai 📖'}
-            {stage === 'cave_path' && 'Tahap 3: Kunci Emas 🔑'}
-          </span>
+        <div className="flex items-center gap-2">
+          {/* Stage Indicator */}
+          <div className="flex items-center gap-1.5 bg-indigo-50 px-3 py-1.5 rounded-2xl border-2 border-indigo-200 text-xs sm:text-sm font-black text-indigo-800">
+            <span>
+              {stage === 'doors' && 'Tahap 1: Pintu Rahasia 🚪'}
+              {stage === 'word_puzzle' && 'Tahap 2: Kata Berantai 📖'}
+              {stage === 'cave_path' && 'Tahap 3: Kunci Emas 🔑'}
+            </span>
+          </div>
+
+          <button
+            onClick={handleShuffleAllChallenges}
+            title="Acak Soal Baru"
+            className="px-3 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-900 border-2 border-indigo-300 rounded-2xl font-black text-xs flex items-center gap-1 transition active:scale-95 cursor-pointer"
+          >
+            <Shuffle className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Acak Soal</span>
+          </button>
         </div>
       </div>
 
@@ -167,9 +310,9 @@ export const Level4GuaMisteri: React.FC<Level4Props> = ({
                 speaker="kiko"
                 text={
                   stage === 'doors'
-                    ? 'Cari pintu yang memiliki huruf B!'
+                    ? `Cari pintu yang memiliki huruf ${doorChallenge.target}!`
                     : stage === 'word_puzzle'
-                    ? 'B → BA → Menjadi kata apa ya?'
+                    ? `${wordChain.letter} → ${wordChain.syllable} → Menjadi kata apa ya?`
                     : 'Beri perintah arah jalan Kiko untuk mengambil Kunci Emas!'
                 }
               />
@@ -190,21 +333,22 @@ export const Level4GuaMisteri: React.FC<Level4Props> = ({
             )}
           </div>
 
-          {/* TAHAP 1: THREE MYSTERY DOORS */}
+          {/* TAHAP 1: THREE MYSTERY DOORS (RANDOMIZED & SHUFFLED) */}
           {stage === 'doors' && (
             <div className="my-3">
               <p className="text-base sm:text-xl font-extrabold text-slate-700 mb-5">
-                Kiko berada di depan 3 pintu gua. Pintu mana yang memiliki huruf <span className="text-3xl text-indigo-600 font-black underline">B</span>?
+                Kiko berada di depan 3 pintu gua. Pintu mana yang memiliki huruf{' '}
+                <span className="text-3xl text-indigo-600 font-black underline">{doorChallenge.target}</span>?
               </p>
 
               <div className="grid grid-cols-3 gap-3 sm:gap-6">
-                {['A', 'B', 'C'].map((letter) => {
+                {doorChallenge.doors.map((letter, idx) => {
                   const isSelected = selectedDoor === letter;
-                  const isCorrect = feedback.status === 'correct' && letter === 'B';
+                  const isCorrect = feedback.status === 'correct' && letter === doorChallenge.target;
 
                   return (
                     <button
-                      key={letter}
+                      key={`${letter}-${idx}`}
                       id={`btn-door-${letter}`}
                       onClick={() => handleSelectDoor(letter)}
                       disabled={feedback.status === 'correct'}
@@ -225,14 +369,18 @@ export const Level4GuaMisteri: React.FC<Level4Props> = ({
             </div>
           )}
 
-          {/* TAHAP 2: WORD CHAIN (B -> BA -> BOLA) */}
+          {/* TAHAP 2: WORD CHAIN (RANDOMIZED PUZZLE & SHUFFLED OPTIONS) */}
           {stage === 'word_puzzle' && (
             <div className="my-3">
               <div className="bg-indigo-50 rounded-3xl p-5 border-3 border-indigo-200 shadow-inner mb-5">
                 <div className="flex items-center justify-center gap-3 sm:gap-4 flex-wrap text-2xl sm:text-4xl font-black text-indigo-900">
-                  <span className="px-4 py-2 bg-white rounded-2xl border-2 border-indigo-300">B</span>
+                  <span className="px-4 py-2 bg-white rounded-2xl border-2 border-indigo-300">
+                    {wordChain.letter}
+                  </span>
                   <span>➜</span>
-                  <span className="px-4 py-2 bg-white rounded-2xl border-2 border-indigo-300">BA</span>
+                  <span className="px-4 py-2 bg-white rounded-2xl border-2 border-indigo-300">
+                    {wordChain.syllable}
+                  </span>
                   <span>➜</span>
                   <span className="px-4 py-2 bg-amber-200 rounded-2xl border-2 border-amber-400 text-amber-900">
                     ???
@@ -244,13 +392,9 @@ export const Level4GuaMisteri: React.FC<Level4Props> = ({
               </div>
 
               <div className="grid grid-cols-3 gap-3 sm:gap-4">
-                {[
-                  { text: 'BOLA', emoji: '⚽', correct: true },
-                  { text: 'BUKU', emoji: '📖', correct: false },
-                  { text: 'BEBEK', emoji: '🦆', correct: false },
-                ].map((item) => (
+                {wordChain.options.map((item, idx) => (
                   <button
-                    key={item.text}
+                    key={`${item.text}-${idx}`}
                     id={`btn-word-chain-${item.text}`}
                     onClick={() => handleSelectWord(item.text)}
                     className="p-4 sm:p-5 rounded-3xl bg-amber-400 hover:bg-amber-500 text-amber-950 font-black border-b-6 border-amber-600 shadow-md active:translate-y-1 active:border-b-2 flex flex-col items-center justify-center cursor-pointer"
@@ -271,7 +415,7 @@ export const Level4GuaMisteri: React.FC<Level4Props> = ({
                   Langkah Terakhir: Ambil Kunci Emas 🔑
                 </h3>
                 <p className="text-xs font-bold text-slate-500">
-                  Arahkan Kiko menuju peti kristal di ujung gua!
+                  Arahkan Kiko menuju kunci emas yang berkilau di dalam gua!
                 </p>
               </div>
 
@@ -281,7 +425,7 @@ export const Level4GuaMisteri: React.FC<Level4Props> = ({
                   {[0, 1, 2].map((y) =>
                     [0, 1, 2, 3].map((x) => {
                       const isKikoHere = kikoCavePos.x === x && kikoCavePos.y === y;
-                      const isKeyHere = x === 3 && y === 1;
+                      const isKeyHere = x === keyPosition.x && y === keyPosition.y;
 
                       return (
                         <div
@@ -346,7 +490,7 @@ export const Level4GuaMisteri: React.FC<Level4Props> = ({
             <button onClick={onBackToMap} className="hover:underline">
               ← Kembali ke Peta
             </button>
-            <span>Petualangan TK A • Membaca & Coding</span>
+            <span>Petualangan TK A • Soal & Jawaban Diacak</span>
           </div>
         </div>
       ) : (

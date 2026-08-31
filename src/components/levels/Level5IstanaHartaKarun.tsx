@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import confetti from 'canvas-confetti';
-import { Sparkles, ArrowRight, ArrowUp, Star, Award, Check } from 'lucide-react';
+import { Sparkles, ArrowRight, ArrowUp, Star, Award, Shuffle } from 'lucide-react';
 import { KikoCharacter, PipiCharacter, TreasureChest, SpeechBubble } from '../Characters';
 import { sound } from '../../utils/sound';
+import { shuffleArray, pickRandom, getRandomSubset } from '../../utils/shuffle';
 
 interface Level5Props {
   onCompleteLevel: (levelId: number, starsEarned: number, readingPoints: number, codingPoints: number) => void;
@@ -12,13 +13,95 @@ interface Level5Props {
 
 type ChallengeStage = 1 | 2 | 3 | 4; // 1: Huruf, 2: Membaca, 3: Coding arah kunci, 4: Harta Karun Terbuka!
 
+interface TreasureChallenge {
+  themeName: string;
+  targetWord: string;
+  targetLetter: string;
+  syllableClue: string;
+  letterDistractors: string[];
+  wordOptions: { text: string; emoji: string; correct: boolean }[];
+}
+
+const TREASURE_THEMES: TreasureChallenge[] = [
+  {
+    themeName: 'Peti Harta Karun',
+    targetWord: 'HARTA',
+    targetLetter: 'H',
+    syllableClue: 'HAR – TA',
+    letterDistractors: ['M', 'T', 'B', 'S'],
+    wordOptions: [
+      { text: 'HARTA', emoji: '💎', correct: true },
+      { text: 'HUTAN', emoji: '🌳', correct: false },
+      { text: 'HUJAN', emoji: '🌧️', correct: false },
+    ],
+  },
+  {
+    themeName: 'Koin Emas Istana',
+    targetWord: 'EMAS',
+    targetLetter: 'E',
+    syllableClue: 'E – MAS',
+    letterDistractors: ['A', 'O', 'I', 'U'],
+    wordOptions: [
+      { text: 'EMAS', emoji: '🪙', correct: true },
+      { text: 'ELANG', emoji: '🦅', correct: false },
+      { text: 'ENAM', emoji: '6️⃣', correct: false },
+    ],
+  },
+  {
+    themeName: 'Kunci Rahasia Istana',
+    targetWord: 'KUNCI',
+    targetLetter: 'K',
+    syllableClue: 'KUN – CI',
+    letterDistractors: ['B', 'P', 'D', 'R'],
+    wordOptions: [
+      { text: 'KUNCI', emoji: '🔑', correct: true },
+      { text: 'KUDA', emoji: '🐴', correct: false },
+      { text: 'KAKI', emoji: '🦶', correct: false },
+    ],
+  },
+  {
+    themeName: 'Mahkota Raja',
+    targetWord: 'MAHKOTA',
+    targetLetter: 'M',
+    syllableClue: 'MAH – KO – TA',
+    letterDistractors: ['W', 'N', 'H', 'S'],
+    wordOptions: [
+      { text: 'MAHKOTA', emoji: '👑', correct: true },
+      { text: 'MANGGA', emoji: '🥭', correct: false },
+      { text: 'MOBIL', emoji: '🚗', correct: false },
+    ],
+  },
+];
+
+const CODE_COMBINATIONS: Array<Array<'UP' | 'RIGHT'>> = [
+  ['RIGHT', 'UP', 'RIGHT'],
+  ['UP', 'RIGHT', 'RIGHT'],
+  ['RIGHT', 'RIGHT', 'UP'],
+  ['UP', 'RIGHT', 'UP'],
+];
+
+function prepareRandomLevel5State() {
+  const theme = pickRandom(TREASURE_THEMES);
+  const chosenDistractors = getRandomSubset(theme.letterDistractors, 2);
+  const letterOptions = shuffleArray([theme.targetLetter, ...chosenDistractors]);
+  const wordOptions = shuffleArray(theme.wordOptions);
+  const targetCode = pickRandom(CODE_COMBINATIONS);
+
+  return {
+    theme,
+    letterOptions,
+    wordOptions,
+    targetCode,
+  };
+}
+
 export const Level5IstanaHartaKarun: React.FC<Level5Props> = ({
   onCompleteLevel,
   onOpenCertificate,
   onBackToMap,
 }) => {
+  const [challengeData, setChallengeData] = useState(() => prepareRandomLevel5State());
   const [challenge, setChallenge] = useState<ChallengeStage>(1);
-  const [isChestOpen, setIsChestOpen] = useState(false);
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
   const [selectedWord, setSelectedWord] = useState<string | null>(null);
   const [codeSequence, setCodeSequence] = useState<Array<'UP' | 'RIGHT'>>([]);
@@ -26,6 +109,19 @@ export const Level5IstanaHartaKarun: React.FC<Level5Props> = ({
     status: 'idle',
     message: '',
   });
+
+  const { theme, letterOptions, wordOptions, targetCode } = challengeData;
+
+  const handleShuffleNewChallenge = () => {
+    sound.playPop();
+    setChallengeData(prepareRandomLevel5State());
+    setChallenge(1);
+    setSelectedLetter(null);
+    setSelectedWord(null);
+    setCodeSequence([]);
+    setFeedback({ status: 'idle', message: '' });
+    sound.speak('Tantangan Istana Harta Karun diacak ulang!');
+  };
 
   // Confetti continuous burst effect for celebration
   const triggerGrandCelebration = () => {
@@ -54,15 +150,18 @@ export const Level5IstanaHartaKarun: React.FC<Level5Props> = ({
     })();
   };
 
-  // Challenge 1: Recognize Castle Letter 'H' for Harta
+  // Challenge 1: Recognize Castle Letter
   const handleChallenge1Letter = (letter: string) => {
     sound.playPop();
     setSelectedLetter(letter);
 
-    if (letter === 'H') {
+    if (letter === theme.targetLetter) {
       sound.playSuccess();
-      sound.speak('Hebat! Huruf H untuk Harta Karun!');
-      setFeedback({ status: 'correct', message: '🎉 HEBAT! Huruf H untuk Harta Karun!' });
+      sound.speak(`Hebat! Huruf ${theme.targetLetter} untuk ${theme.targetWord}!`);
+      setFeedback({
+        status: 'correct',
+        message: `🎉 HEBAT! Huruf ${theme.targetLetter} untuk ${theme.targetWord}!`,
+      });
       try {
         confetti({ particleCount: 35, spread: 50 });
       } catch {
@@ -76,8 +175,8 @@ export const Level5IstanaHartaKarun: React.FC<Level5Props> = ({
       }, 1400);
     } else {
       sound.playTryAgain();
-      sound.speak('Coba lagi! Cari huruf H ya!');
-      setFeedback({ status: 'retry', message: 'Coba lagi! Cari huruf H 😊' });
+      sound.speak(`Coba lagi! Cari huruf ${theme.targetLetter} ya!`);
+      setFeedback({ status: 'retry', message: `Coba lagi! Cari huruf ${theme.targetLetter} 😊` });
       setTimeout(() => {
         setSelectedLetter(null);
         setFeedback({ status: 'idle', message: '' });
@@ -85,15 +184,15 @@ export const Level5IstanaHartaKarun: React.FC<Level5Props> = ({
     }
   };
 
-  // Challenge 2: Read word "HARTA"
+  // Challenge 2: Read word
   const handleChallenge2Word = (word: string) => {
     sound.playPop();
     setSelectedWord(word);
 
-    if (word === 'HARTA') {
+    if (word === theme.targetWord) {
       sound.playSuccess();
-      sound.speak('Luar biasa! Kata HARTA berhasil dibaca!');
-      setFeedback({ status: 'correct', message: '🎉 BENAR! Kata HARTA!' });
+      sound.speak(`Luar biasa! Kata ${theme.targetWord} berhasil dibaca!`);
+      setFeedback({ status: 'correct', message: `🎉 BENAR! Kata ${theme.targetWord}!` });
       try {
         confetti({ particleCount: 40, spread: 60 });
       } catch {
@@ -107,8 +206,8 @@ export const Level5IstanaHartaKarun: React.FC<Level5Props> = ({
       }, 1400);
     } else {
       sound.playTryAgain();
-      sound.speak('Coba lagi! Kata HARTA yang cocok dengan peti emas!');
-      setFeedback({ status: 'retry', message: 'Coba lagi! Kata HARTA 😊' });
+      sound.speak(`Coba lagi! Kata ${theme.targetWord} yang cocok!`);
+      setFeedback({ status: 'retry', message: `Coba lagi! Cari kata ${theme.targetWord} 😊` });
       setTimeout(() => {
         setSelectedWord(null);
         setFeedback({ status: 'idle', message: '' });
@@ -116,31 +215,44 @@ export const Level5IstanaHartaKarun: React.FC<Level5Props> = ({
     }
   };
 
-  // Challenge 3: Insert 3 Key directions [ RIGHT, UP, RIGHT ]
+  const getCodeText = (code: Array<'UP' | 'RIGHT'>) => {
+    return code
+      .map((dir) => (dir === 'UP' ? 'Atas ⬆️' : 'Kanan ➡️'))
+      .join(', lalu ');
+  };
+
+  // Challenge 3: Insert 3 Key directions
   const handleAddDirection = (dir: 'UP' | 'RIGHT') => {
     if (codeSequence.length >= 3) return;
     sound.playPop();
     const newSeq = [...codeSequence, dir];
     setCodeSequence(newSeq);
 
-    // Target sequence: RIGHT, UP, RIGHT
+    // Target sequence verification
     if (newSeq.length === 3) {
-      if (newSeq[0] === 'RIGHT' && newSeq[1] === 'UP' && newSeq[2] === 'RIGHT') {
+      const isMatch =
+        newSeq[0] === targetCode[0] &&
+        newSeq[1] === targetCode[1] &&
+        newSeq[2] === targetCode[2];
+
+      if (isMatch) {
         // Correct lock combination!
         sound.playTreasureOpen();
         sound.speak('Selamat, Petualang Kecil! Peti Harta Karun terbuka!');
-        setIsChestOpen(true);
         setChallenge(4);
         triggerGrandCelebration();
         onCompleteLevel(5, 10, 5, 5);
       } else {
         sound.playTryAgain();
-        sound.speak('Ayo coba urutan kunci yang lain: Kanan, Atas, Kanan!');
-        setFeedback({ status: 'retry', message: 'Kombinasi kunci: Kanan ➡️, Atas ⬆️, Kanan ➡️ 😊' });
+        sound.speak(`Ayo coba urutan kunci: ${getCodeText(targetCode)}!`);
+        setFeedback({
+          status: 'retry',
+          message: `Kombinasi kunci: ${getCodeText(targetCode)} 😊`,
+        });
         setTimeout(() => {
           setCodeSequence([]);
           setFeedback({ status: 'idle', message: '' });
-        }, 2000);
+        }, 2200);
       }
     }
   };
@@ -148,25 +260,34 @@ export const Level5IstanaHartaKarun: React.FC<Level5Props> = ({
   return (
     <div className="min-h-[calc(100vh-68px)] bg-gradient-to-b from-amber-200 via-yellow-100 to-amber-200 p-4 sm:p-8 flex flex-col items-center justify-between">
       {/* Castle Grand Header */}
-      <div className="w-full max-w-2xl flex items-center justify-between bg-white/95 backdrop-blur-sm border-4 border-amber-400 rounded-3xl px-5 py-3 shadow-md mb-4">
+      <div className="w-full max-w-2xl flex flex-wrap items-center justify-between bg-white/95 backdrop-blur-sm border-4 border-amber-400 rounded-3xl px-5 py-3 shadow-md mb-4 gap-2">
         <div className="flex items-center gap-2">
           <span className="text-3xl sm:text-4xl">🏰</span>
           <div>
             <span className="text-xs font-black text-amber-600 uppercase tracking-wide">
-              LEVEL 5 • GRAND FINALE
+              LEVEL 5 • SOAL & JAWABAN DIACAK
             </span>
             <h2 className="text-lg sm:text-xl font-black text-slate-800">ISTANA HARTA KARUN</h2>
           </div>
         </div>
 
-        <div className="flex items-center gap-1 bg-amber-100 px-3.5 py-1.5 rounded-2xl border-2 border-amber-300 text-xs sm:text-sm font-black text-amber-900">
-          <span>Tantangan {Math.min(challenge, 3)} / 3</span>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 bg-amber-100 px-3.5 py-1.5 rounded-2xl border-2 border-amber-300 text-xs sm:text-sm font-black text-amber-900">
+            <span>Tantangan {Math.min(challenge, 3)} / 3</span>
+          </div>
+
+          <button
+            onClick={handleShuffleNewChallenge}
+            title="Acak Soal Baru"
+            className="px-3 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 border-2 border-amber-300 rounded-2xl font-black text-xs flex items-center gap-1 transition active:scale-95 cursor-pointer"
+          >
+            <Shuffle className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Acak Soal</span>
+          </button>
         </div>
       </div>
 
-      {/* ============================================================
-          CHALLENGES 1, 2, 3 OR FINAL GRAND CELEBRATION
-         ============================================================ */}
+      {/* CHALLENGES 1, 2, 3 OR FINAL GRAND CELEBRATION */}
       {challenge < 4 ? (
         <div className="w-full max-w-2xl bg-white/95 rounded-3xl border-4 border-amber-400 shadow-2xl p-6 sm:p-8 text-center flex-1 flex flex-col justify-between my-2">
           {/* Companions & Speech */}
@@ -203,21 +324,22 @@ export const Level5IstanaHartaKarun: React.FC<Level5Props> = ({
             )}
           </div>
 
-          {/* TANTANGAN 1: HURUF MAGIS ISTANA 'H' */}
+          {/* TANTANGAN 1: HURUF MAGIS ISTANA (SHUFFLED) */}
           {challenge === 1 && (
             <div className="my-2">
               <h3 className="text-xl sm:text-2xl font-black text-slate-800 mb-4">
-                Tantangan 1: Pilih huruf awal dari <span className="text-amber-600 underline">HARTA</span>!
+                Tantangan 1: Pilih huruf awal dari{' '}
+                <span className="text-amber-600 underline">{theme.targetWord}</span>!
               </h3>
 
               <div className="grid grid-cols-3 gap-3 sm:gap-6">
-                {['H', 'M', 'T'].map((letter) => {
+                {letterOptions.map((letter, idx) => {
                   const isSelected = selectedLetter === letter;
-                  const isCorrect = feedback.status === 'correct' && letter === 'H';
+                  const isCorrect = feedback.status === 'correct' && letter === theme.targetLetter;
 
                   return (
                     <button
-                      key={letter}
+                      key={`${letter}-${idx}`}
                       id={`btn-final-letter-${letter}`}
                       onClick={() => handleChallenge1Letter(letter)}
                       disabled={feedback.status === 'correct'}
@@ -237,21 +359,17 @@ export const Level5IstanaHartaKarun: React.FC<Level5Props> = ({
             </div>
           )}
 
-          {/* TANTANGAN 2: MEMBACA KATA SEDERHANA 'HARTA' */}
+          {/* TANTANGAN 2: MEMBACA KATA SEDERHANA (SHUFFLED) */}
           {challenge === 2 && (
             <div className="my-2">
               <h3 className="text-xl sm:text-2xl font-black text-slate-800 mb-4">
-                Tantangan 2: Baca mantra pembuka istana: <span className="text-amber-600">HAR – TA</span>!
+                Tantangan 2: Baca mantra pembuka: <span className="text-amber-600">{theme.syllableClue}</span>!
               </h3>
 
               <div className="grid grid-cols-3 gap-3 sm:gap-4">
-                {[
-                  { text: 'HARTA', emoji: '💎', correct: true },
-                  { text: 'HUTAN', emoji: '🌳', correct: false },
-                  { text: 'HUJAN', emoji: '🌧️', correct: false },
-                ].map((item) => (
+                {wordOptions.map((item, idx) => (
                   <button
-                    key={item.text}
+                    key={`${item.text}-${idx}`}
                     id={`btn-final-word-${item.text}`}
                     onClick={() => handleChallenge2Word(item.text)}
                     className="p-5 rounded-3xl bg-amber-400 hover:bg-amber-500 text-amber-950 font-black border-b-6 border-amber-600 shadow-md active:translate-y-1 active:border-b-2 flex flex-col items-center justify-center cursor-pointer"
@@ -264,14 +382,14 @@ export const Level5IstanaHartaKarun: React.FC<Level5Props> = ({
             </div>
           )}
 
-          {/* TANTANGAN 3: CODING ARAH KUNCI PEMBUKA PETI */}
+          {/* TANTANGAN 3: CODING ARAH KUNCI PEMBUKA PETI (RANDOMIZED SEQUENCE) */}
           {challenge === 3 && (
             <div className="my-2">
               <h3 className="text-lg sm:text-xl font-black text-slate-800 mb-2">
                 Tantangan 3: Masukkan 3 Arah Kunci Magis
               </h3>
               <p className="text-xs sm:text-sm font-bold text-amber-900 mb-4">
-                Petunjuk Kiko: Tekan <span className="underline">Kanan ➡️</span>, lalu <span className="underline">Atas ⬆️</span>, lalu <span className="underline">Kanan ➡️</span>!
+                Petunjuk Kiko: Tekan <span className="underline">{getCodeText(targetCode)}</span>!
               </p>
 
               {/* Direction Slots */}
@@ -319,13 +437,11 @@ export const Level5IstanaHartaKarun: React.FC<Level5Props> = ({
             <button onClick={onBackToMap} className="hover:underline">
               ← Kembali ke Peta
             </button>
-            <span>Istana Harta Karun • Menuju Kemenangan!</span>
+            <span>Istana Harta Karun • Soal & Jawaban Diacak</span>
           </div>
         </div>
       ) : (
-        /* ============================================================
-            GRAND FINALE: TREASURE OPENED & CELEBRATION!
-           ============================================================ */
+        /* GRAND FINALE: TREASURE OPENED & CELEBRATION! */
         <div className="w-full max-w-2xl bg-white/95 rounded-3xl border-6 border-amber-400 shadow-2xl p-6 sm:p-10 text-center my-auto relative overflow-hidden animate-pulse-glow">
           {/* Fireworks & Sparkles visual banner */}
           <div className="flex items-center justify-center gap-2 mb-2">
