@@ -1,0 +1,6 @@
+{
+  "name": "Petualangan Kiko",
+  "description": "Web interaktif edukatif pembelajaran dasar coding dan membaca untuk anak TK A bersama Kiko dan Pipi.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
